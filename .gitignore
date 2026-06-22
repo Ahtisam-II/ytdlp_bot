@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+
+# Environments
+.env
+
+# Logs and databases
+*.log
+*.session
+*.session-journal
+
+# Downloads
+downloads/
