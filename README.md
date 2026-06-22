@@ -64,6 +64,7 @@ API_HASH=eb06d4abfb49dc3eeb1aeb98ae0f581e
 MAX_FILE_SIZE_MB=2000
 MAX_VIDEO_DURATION=3600
 KEEP_DOWNLOADS=False
+ADMIN_USER_ID= your telegram_id
 ```
 
 ### Configuration Details:
