@@ -51,70 +51,98 @@ async def handle_message(client: Client, message: Message):
     duration_str = format_duration(duration)
     formats = info.get('formats', [])
     
-    # Let's collect unique resolutions
-    filtered_formats = []
-    seen_resolutions = set()
+    # Build keyboard
+    keyboard = []
     
-    # Sort formats by resolution, then size
-    formats.sort(key=lambda x: (x.get('height', 0) or 0, x.get('filesize', 0) or x.get('filesize_approx', 0) or 0), reverse=True)
-    
+    # Store url in memory
+    if user_id not in USER_DATA:
+        USER_DATA[user_id] = {}
+    USER_DATA[user_id]['last_url'] = url
+
+    # 1. Default Best Options
+    keyboard.append([
+        InlineKeyboardButton("🌟 Best Video & Audio", callback_data="dl|best|v"),
+        InlineKeyboardButton("🎵 Best Audio Only", callback_data="dl|bestaudio|a")
+    ])
+
+    # 2. Extract formats
+    video_formats = {}
+    audio_formats = {}
+
     for f in formats:
-        # We want video formats
-        if f.get('vcodec') == 'none':
-            continue # audio only
-            
+        format_id = f.get('format_id')
+        ext = f.get('ext', 'unk')
+        size_bytes = f.get('filesize') or f.get('filesize_approx') or 0
+        
+        if size_bytes > config.MAX_FILE_SIZE_BYTES:
+            continue
+
+        # Audio only
+        if f.get('vcodec') == 'none' and f.get('acodec') != 'none':
+            if ext not in audio_formats or size_bytes > audio_formats[ext]['size']:
+                audio_formats[ext] = {'id': format_id, 'size': size_bytes}
+            continue
+
+        # Video
         height = f.get('height')
         if not height:
             continue
             
-        res_label = f"{height}p"
+        fps = f.get('fps')
+        fps_str = f"{fps}" if fps and fps > 30 else ""
+        res_label = f"{height}p{fps_str}"
         
-        # Skip if we already have a better format for this resolution
-        if res_label in seen_resolutions:
-            continue
-            
-        size_bytes = f.get('filesize') or f.get('filesize_approx') or 0
+        # Group by resolution + extension
+        group_key = f"{res_label}_{ext}"
         
-        if size_bytes > config.MAX_FILE_SIZE_BYTES:
-            continue # Skip formats that are too large
-            
-        ext = f.get('ext', 'mkv')
-        format_id = f.get('format_id')
-        has_audio = f.get('acodec') != 'none'
-        
-        label = f"{res_label} | {ext} | {format_size(size_bytes)}"
-        if not has_audio:
-            label += " (merged)" # Will be merged with audio
-            
-        # Store url in memory
-        if user_id not in USER_DATA:
-            USER_DATA[user_id] = {}
-        USER_DATA[user_id]['last_url'] = url
-        
-        cb_data = f"dl|{format_id}"
-        if len(cb_data) <= 64:
-            filtered_formats.append(
-                InlineKeyboardButton(label, callback_data=cb_data)
-            )
-            seen_resolutions.add(res_label)
-            
-    if not filtered_formats:
-        await processing_msg.edit_text(
-            f"🎬 **{title}**\n⏱ {duration_str}\n\n"
-            f"❌ No suitable formats found under {config.MAX_FILE_SIZE_MB}MB."
-        )
-        return
+        # Keep the one with the highest bitrate/size in this group
+        if group_key not in video_formats or size_bytes > video_formats[group_key]['size']:
+            video_formats[group_key] = {
+                'id': format_id,
+                'res': res_label,
+                'ext': ext,
+                'size': size_bytes,
+                'has_audio': f.get('acodec') != 'none'
+            }
 
-    # Build keyboard (2 buttons per row)
-    keyboard = []
+    # Sort video formats highest resolution first
+    sorted_videos = sorted(video_formats.values(), key=lambda x: int(x['res'].split('p')[0]), reverse=True)
+    
+    # Add video buttons (2 per row)
     row = []
-    for btn in filtered_formats:
-        row.append(btn)
-        if len(row) == 2:
-            keyboard.append(row)
-            row = []
+    for vf in sorted_videos[:20]:  # Limit to top 20 to avoid massive keyboards
+        label = f"🎥 {vf['res']} {vf['ext']}"
+        if vf['size'] > 0:
+            label += f" ({format_size(vf['size'])})"
+        
+        cb_data = f"dl|{vf['id']}|v"
+        if len(cb_data) <= 64:
+            row.append(InlineKeyboardButton(label, callback_data=cb_data))
+            if len(row) == 2:
+                keyboard.append(row)
+                row = []
     if row:
         keyboard.append(row)
+
+    # Add audio buttons (if any explicitly requested, but 'Best Audio Only' usually suffices)
+    # We will just append them at the bottom if found
+    row = []
+    for ext, af in audio_formats.items():
+        if ext in ['m4a', 'mp3', 'webm', 'opus']:  # common audio formats
+            label = f"🎧 {ext}"
+            if af['size'] > 0:
+                label += f" ({format_size(af['size'])})"
+            cb_data = f"dl|{af['id']}|a"
+            if len(cb_data) <= 64:
+                row.append(InlineKeyboardButton(label, callback_data=cb_data))
+                if len(row) == 2:
+                    keyboard.append(row)
+                    row = []
+    if row:
+        keyboard.append(row)
+
+    if len(keyboard) == 1: # Only Best options exist, maybe no formats found
+        pass
         
     reply_markup = InlineKeyboardMarkup(keyboard)
     

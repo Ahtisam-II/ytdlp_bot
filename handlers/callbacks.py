@@ -24,7 +24,9 @@ async def handle_callback(client: Client, query: CallbackQuery):
     if not data.startswith("dl|"):
         return
         
-    format_id = data.split("|")[1]
+    parts = data.split("|")
+    format_id = parts[1]
+    is_audio = parts[2] == 'a' if len(parts) > 2 else False
     
     url = None
     if user_id in USER_DATA:
@@ -41,6 +43,7 @@ async def handle_callback(client: Client, query: CallbackQuery):
         "message_id": query.message.id,
         "url": url,
         "format_id": format_id,
+        "is_audio": is_audio,
         "user_id": user_id
     }
     
@@ -80,9 +83,16 @@ async def process_download(job_data: dict):
     message_id = job_data["message_id"]
     url = job_data["url"]
     format_id = job_data["format_id"]
+    is_audio = job_data.get("is_audio", False)
     user_id = job_data["user_id"]
     
-    download_format = f"{format_id}+bestaudio/best"
+    if is_audio:
+        download_format = format_id if format_id != 'bestaudio' else 'bestaudio/best'
+    else:
+        if format_id == 'best':
+            download_format = 'bestvideo+bestaudio/best'
+        else:
+            download_format = f"{format_id}+bestaudio/best"
     
     timestamp = int(time.time())
     download_dir = os.path.join(config.DOWNLOAD_DIR, f"{user_id}_{timestamp}")
@@ -94,7 +104,7 @@ async def process_download(job_data: dict):
         await status_msg.edit_text("⏳ Downloading... Please wait.")
         
         # Download
-        downloaded_file = await DownloaderService.download_format(url, download_format, download_dir)
+        downloaded_file = await DownloaderService.download_format(url, download_format, download_dir, is_audio)
         
         file_size = os.path.getsize(downloaded_file)
         if file_size > config.MAX_FILE_SIZE_BYTES:

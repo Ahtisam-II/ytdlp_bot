@@ -32,7 +32,7 @@ class DownloaderService:
             raise RuntimeError("Invalid output from yt-dlp.")
 
     @staticmethod
-    async def download_format(url: str, format_id: str, download_dir: str) -> str:
+    async def download_format(url: str, format_id: str, download_dir: str, is_audio: bool = False) -> str:
         """
         Downloads a specific format. It saves it inside download_dir with its original title.
         """
@@ -40,16 +40,24 @@ class DownloaderService:
         os.makedirs(download_dir, exist_ok=True)
         output_template = os.path.join(download_dir, "%(title)s.%(ext)s")
         
-        logger.info(f"Downloading format {format_id} for URL: {url} to {output_template}")
+        logger.info(f"Downloading format {format_id} for URL: {url} to {output_template} (Audio Only: {is_audio})")
         
-        process = await asyncio.create_subprocess_exec(
+        args = [
             "yt-dlp",
             "-f", format_id,
             "--no-playlist",
-            "-o", output_template,
-            "--merge-output-format", "mkv",
-            "--remux-video", "mkv",
-            url,
+            "-o", output_template
+        ]
+        
+        if is_audio:
+            args.extend(["--extract-audio", "--audio-format", "best"])
+        else:
+            args.extend(["--merge-output-format", "mkv", "--remux-video", "mkv"])
+            
+        args.append(url)
+        
+        process = await asyncio.create_subprocess_exec(
+            *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
