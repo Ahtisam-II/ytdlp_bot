@@ -119,15 +119,20 @@ async def process_download(job_data: dict):
             # File is under 50MB, upload using fast HTTP Bot API
             await status_msg.edit_text("⏳ Uploading via HTTP API (Fast)...")
             import httpx
-            api_url = f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendDocument"
+            
+            api_method = "sendAudio" if is_audio else "sendVideo"
+            file_key = "audio" if is_audio else "video"
+            caption_text = "Here is your audio! 🎧" if is_audio else "Here is your video! 🎬"
+            
+            api_url = f"https://api.telegram.org/bot{config.BOT_TOKEN}/{api_method}"
             
             # Setup proxy if configured
             proxy = config.PROXY_URL if config.PROXY_URL else None
                 
             async with httpx.AsyncClient(proxy=proxy) as client:
                 with open(downloaded_file, 'rb') as f:
-                    files = {'document': f}
-                    data = {'chat_id': chat_id, 'caption': "Here is your video! 🎬"}
+                    files = {file_key: f}
+                    data = {'chat_id': chat_id, 'caption': caption_text}
                     response = await client.post(api_url, data=data, files=files, timeout=300)
             
             if response.status_code == 200:
@@ -135,24 +140,45 @@ async def process_download(job_data: dict):
             else:
                 # If HTTP fails (e.g., due to strict proxy rules), fallback to MTProto
                 logger.warning(f"HTTP upload failed ({response.status_code}): {response.text}. Falling back to MTProto.")
-                await app.send_document(
-                    chat_id=chat_id,
-                    document=downloaded_file,
-                    caption="Here is your video! 🎬 (Fallback)",
-                    progress=upload_progress,
-                    progress_args=(status_msg, start_time)
-                )
+                
+                if is_audio:
+                    await app.send_audio(
+                        chat_id=chat_id,
+                        audio=downloaded_file,
+                        caption=caption_text + " (Fallback)",
+                        progress=upload_progress,
+                        progress_args=(status_msg, start_time)
+                    )
+                else:
+                    await app.send_video(
+                        chat_id=chat_id,
+                        video=downloaded_file,
+                        caption=caption_text + " (Fallback)",
+                        progress=upload_progress,
+                        progress_args=(status_msg, start_time)
+                    )
                 await status_msg.delete()
         else:
             # File is over 50MB, MUST upload using MTProto
             await status_msg.edit_text("⏳ Uploading via MTProto (>50MB)...")
-            await app.send_document(
-                chat_id=chat_id,
-                document=downloaded_file,
-                caption="Here is your video! 🎬",
-                progress=upload_progress,
-                progress_args=(status_msg, start_time)
-            )
+            caption_text = "Here is your audio! 🎧" if is_audio else "Here is your video! 🎬"
+            
+            if is_audio:
+                await app.send_audio(
+                    chat_id=chat_id,
+                    audio=downloaded_file,
+                    caption=caption_text,
+                    progress=upload_progress,
+                    progress_args=(status_msg, start_time)
+                )
+            else:
+                await app.send_video(
+                    chat_id=chat_id,
+                    video=downloaded_file,
+                    caption=caption_text,
+                    progress=upload_progress,
+                    progress_args=(status_msg, start_time)
+                )
             await status_msg.delete()
         
     except Exception as e:
